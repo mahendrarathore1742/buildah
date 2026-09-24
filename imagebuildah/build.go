@@ -122,6 +122,14 @@ func BuildDockerfiles(ctx context.Context, store storage.Store, options define.B
 		}
 	}
 
+	var contextAbs string
+	if options.ContextDirectory != "" {
+		contextAbs, err = filepath.Abs(options.ContextDirectory)
+		if err != nil {
+			return "", nil, fmt.Errorf("resolving context directory %q: %w", options.ContextDirectory, err)
+		}
+	}
+
 	for _, dfile := range paths {
 		var data io.Reader
 
@@ -141,26 +149,16 @@ func BuildDockerfiles(ctx context.Context, store storage.Store, options define.B
 			}
 			data = resp.Body
 		} else {
-			if options.ContextDirectory != "" {
-				contextAbs, err := filepath.Abs(options.ContextDirectory)
-				if err != nil {
-					return "", nil, fmt.Errorf("resolving context directory %q: %w", options.ContextDirectory, err)
-				}
-				contextAbs, err = filepath.EvalSymlinks(contextAbs)
-				if err != nil {
-					return "", nil, fmt.Errorf("resolving context directory %q: %w", options.ContextDirectory, err)
-				}
-				contextAbs = filepath.Clean(contextAbs)
-
+			if contextAbs != "" {
 				dfileAbs := dfile
 				if !filepath.IsAbs(dfileAbs) {
-					candidate := filepath.Join(contextAbs, dfile)
-					if _, err := os.Lstat(candidate); err == nil {
-						dfileAbs = candidate
-					} else if _, err := os.Lstat(dfile); err == nil {
-						dfileAbs, _ = filepath.Abs(dfile)
+					if _, err := os.Lstat(dfileAbs); err == nil {
+						dfileAbs, err = filepath.Abs(dfileAbs)
+						if err != nil {
+							return "", nil, fmt.Errorf("resolving containerfile %q: %w", dfile, err)
+						}
 					} else {
-						dfileAbs = candidate
+						dfileAbs = filepath.Join(contextAbs, dfileAbs)
 					}
 				}
 
@@ -170,10 +168,6 @@ func BuildDockerfiles(ctx context.Context, store storage.Store, options define.B
 						return "", nil, fmt.Errorf("resolving containerfile %q: %w", dfile, err)
 					}
 					dfile = resolved
-				}
-			} else {
-				if _, err := os.Lstat(dfile); err != nil && !filepath.IsAbs(dfile) && !strings.HasPrefix(dfile, options.ContextDirectory) {
-					dfile = filepath.Join(options.ContextDirectory, dfile)
 				}
 			}
 
